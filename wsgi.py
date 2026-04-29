@@ -17,7 +17,7 @@ def start_keep_alive():
     if not base_url:
         return   # local dev — no ping needed
 
-    import urllib.request
+    import urllib.request, urllib.error
 
     def _ping():
         # Wait 2 min after startup so the app is fully warmed up first
@@ -25,10 +25,17 @@ def start_keep_alive():
         while True:
             try:
                 url = f"{base_url}/api/status"
-                urllib.request.urlopen(url, timeout=10)
+                urllib.request.urlopen(url, timeout=25)
                 log.info("Keep-alive ping OK → %s", url)
+            except urllib.error.URLError as e:
+                # Timeout = server is already busy/awake — not a real failure
+                reason = str(e.reason) if hasattr(e, "reason") else str(e)
+                if "timed out" in reason.lower():
+                    log.debug("Keep-alive ping timed out (server busy but alive)")
+                else:
+                    log.warning("Keep-alive ping failed: %s", reason)
             except Exception as e:
-                log.warning("Keep-alive ping failed: %s", e)
+                log.warning("Keep-alive ping error: %s", e)
             time.sleep(10 * 60)   # ping every 10 minutes
 
     t = threading.Thread(target=_ping, daemon=True, name="KeepAlive")
