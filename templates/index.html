@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+<title>StockAgent — India</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { background:#0f172a; color:#e2e8f0; font-family:'Segoe UI',system-ui,sans-serif; }
+  .card { background:#1e293b; border:1px solid #334155; border-radius:12px; }
+  .card-sm { background:#1e293b; border:1px solid #334155; border-radius:8px; }
+  .badge-buy  { background:#16a34a22; border:1px solid #16a34a; color:#4ade80; }
+  .badge-sell { background:#dc262622; border:1px solid #dc2626; color:#f87171; }
+  .badge-hold { background:#ca8a0422; border:1px solid #ca8a04; color:#fbbf24; }
+  .badge-sbuy { background:#16a34a; color:#fff; }
+  .badge-ssell{ background:#dc2626; color:#fff; }
+  .badge-bull { background:#16a34a22; color:#4ade80; border:1px solid #16a34a; }
+  .badge-bear { background:#dc262622; color:#f87171; border:1px solid #dc2626; }
+  .badge-neut { background:#334155; color:#94a3b8; border:1px solid #475569; }
+  .up   { color:#4ade80; }
+  .down { color:#f87171; }
+  .neutral { color:#94a3b8; }
+  input, select {
+    background:#0f172a; border:1px solid #475569; color:#e2e8f0;
+    border-radius:8px; padding:8px 12px; width:100%; outline:none;
+  }
+  input:focus, select:focus { border-color:#6366f1; }
+  button {
+    background:#6366f1; color:#fff; border-radius:8px;
+    padding:8px 18px; font-weight:600; cursor:pointer;
+    transition: background 0.2s;
+  }
+  button:hover { background:#4f46e5; }
+  .btn-sm { padding:5px 12px; font-size:12px; border-radius:6px; }
+  .tag { font-size:10px; font-weight:700; padding:2px 8px; border-radius:20px; }
+  .open-dot { width:8px; height:8px; border-radius:50%; background:#4ade80;
+              display:inline-block; animation: pulse 1.5s infinite; }
+  .closed-dot { width:8px; height:8px; border-radius:50%; background:#f87171;
+                display:inline-block; }
+  @keyframes pulse {
+    0%,100% { opacity:1; } 50% { opacity:0.4; }
+  }
+  .scroll-x { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .scroll-x::-webkit-scrollbar { display:none; }
+  .signal-grid { display:grid; gap:12px; grid-template-columns:1fr; }
+  @media(min-width:640px) { .signal-grid { grid-template-columns:1fr 1fr; } }
+  @media(min-width:1024px) { .signal-grid { grid-template-columns:1fr 1fr 1fr; } }
+  .spinner { border:3px solid #334155; border-top:3px solid #6366f1;
+             border-radius:50%; width:28px; height:28px;
+             animation: spin 0.8s linear infinite; margin:auto; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .modal-bg { position:fixed; inset:0; background:#00000088;
+              z-index:50; display:flex; align-items:flex-start;
+              justify-content:center; padding:16px; overflow-y:auto; }
+  .modal { background:#1e293b; border:1px solid #475569; border-radius:16px;
+           width:100%; max-width:640px; max-height:90vh; overflow-y:auto; padding:20px; }
+  .row { display:flex; justify-content:space-between; align-items:center;
+         padding:6px 0; border-bottom:1px solid #1e293b; }
+  .row:last-child { border-bottom:none; }
+  .refresh-btn { background:transparent; border:1px solid #475569; color:#94a3b8;
+                 padding:4px 10px; font-size:12px; border-radius:6px; cursor:pointer; }
+  .refresh-btn:hover { border-color:#6366f1; color:#a5b4fc; background:transparent; }
+</style>
+</head>
+<body>
+
+<!-- ──────────── TOP BAR ──────────── -->
+<header class="sticky top-0 z-40" style="background:#0f172a; border-bottom:1px solid #1e293b;">
+  <div class="max-w-7xl mx-auto px-3 py-2 flex items-center justify-between">
+    <div class="flex items-center gap-2">
+      <span class="text-indigo-400 font-bold text-lg">📈 StockAgent</span>
+      <span class="text-xs text-slate-400 hidden sm:block">India</span>
+    </div>
+    <div class="flex items-center gap-3">
+      <div id="mktStatus" class="flex items-center gap-1 text-xs">
+        <span class="closed-dot" id="statusDot"></span>
+        <span id="statusText" class="font-semibold">—</span>
+      </div>
+      <span id="istTime" class="text-xs text-slate-400 font-mono hidden sm:block"></span>
+      <button class="refresh-btn" onclick="refreshAll()">↻ Refresh</button>
+    </div>
+  </div>
+</header>
+
+<div class="max-w-7xl mx-auto px-3 py-3 space-y-4">
+
+  <!-- ──── Stale Data / Holiday Warnings ──── -->
+  <div id="staleWarning" style="display:none"
+       class="card p-3 text-sm text-amber-400 border-amber-700 flex items-center gap-2">
+    ⚠️ <strong>Data may be outdated</strong> — background refresh is delayed.
+    Signals shown are from the last successful update. <button class="refresh-btn ml-auto" onclick="refreshAll()">↻ Force Refresh</button>
+  </div>
+  <div id="holidayBanner" style="display:none"
+       class="card p-3 text-sm text-indigo-300 border-indigo-700 text-center">
+    🎉 <strong>NSE Holiday today</strong> — market is closed. Signals are based on yesterday's data. Plan your trades for tomorrow.
+  </div>
+
+  <!-- ──── Budget Banner ──── -->
+  <div class="card p-3 flex flex-wrap items-center gap-3 text-sm">
+    <div>
+      <span class="text-slate-400 text-xs">Capital</span>
+      <p class="font-bold text-white">₹4,000</p>
+    </div>
+    <div>
+      <span class="text-slate-400 text-xs">5× Intraday Power</span>
+      <p class="font-bold text-indigo-300">₹20,000</p>
+    </div>
+    <div>
+      <span class="text-slate-400 text-xs">Max Risk / Trade (2%)</span>
+      <p class="font-bold text-amber-400">₹80</p>
+    </div>
+    <div class="ml-auto text-xs text-slate-500">
+      Last update: <span id="lastRefresh">—</span>
+    </div>
+  </div>
+
+  <!-- ──── Best Pick of the Day ──── -->
+  <div id="bestPickSection">
+    <div class="card p-4 flex flex-col items-center text-center" id="bestPickLoading"
+         style="border-color:#4f46e5; border-width:2px;">
+      <div class="spinner mb-2"></div>
+      <p class="text-xs text-slate-400">Finding best opportunity…</p>
+    </div>
+    <div id="bestPickCard" style="display:none"></div>
+  </div>
+
+  <!-- ──── Indices ──── -->
+  <section>
+    <h2 class="text-xs text-slate-400 font-semibold mb-2 uppercase tracking-wider">Market Indices</h2>
+    <div class="scroll-x flex gap-3 pb-1" id="indicesRow">
+      <div class="card-sm p-3 min-w-[130px] text-center"><div class="spinner"></div></div>
+    </div>
+  </section>
+
+  <!-- ──── Global Context ──── -->
+  <section>
+    <h2 class="text-xs text-slate-400 font-semibold mb-2 uppercase tracking-wider">Global Context</h2>
+    <div class="scroll-x flex gap-3 pb-1" id="globalRow">
+      <div class="card-sm p-3 min-w-[120px] text-center"><div class="spinner"></div></div>
+    </div>
+  </section>
+
+  <!-- ──── Market Mood ──── -->
+  <div id="moodBanner" class="card p-3 text-center text-sm text-slate-400">Analyzing market mood…</div>
+
+  <!-- ──── Search ──── -->
+  <section class="card p-3">
+    <h2 class="text-xs text-slate-400 font-semibold mb-2 uppercase tracking-wider">🔍 Analyze Any Stock</h2>
+    <div class="flex gap-2">
+      <input id="searchInput" type="text" placeholder="e.g. SBIN, TCS, RELIANCE, INFY"
+             onkeydown="if(event.key==='Enter') analyzeSearch()"/>
+      <button onclick="analyzeSearch()" class="whitespace-nowrap">Analyze</button>
+    </div>
+    <p class="text-xs text-slate-500 mt-1">NSE suffix (.NS) added automatically. Also supports US tickers.</p>
+  </section>
+
+  <!-- ──── Live Signals ──── -->
+  <section>
+    <div class="flex items-center justify-between mb-2">
+      <h2 class="text-xs text-slate-400 font-semibold uppercase tracking-wider">
+        ⚡ Live Buy / Sell Signals
+      </h2>
+      <div class="flex items-center gap-2">
+        <select id="watchlistSelect" class="text-xs py-1 px-2 w-auto"
+                onchange="loadWatchlist(this.value)">
+          <option value="affordable">Affordable (₹4K)</option>
+          <option value="banking">Banking</option>
+          <option value="it_tech">IT / Tech</option>
+          <option value="volatile">Volatile</option>
+          <option value="midcap">Mid Cap</option>
+          <option value="nifty50">Nifty 50</option>
+        </select>
+      </div>
+    </div>
+    <div id="signalsGrid" class="signal-grid">
+      <div class="card p-6 text-center col-span-full"><div class="spinner"></div>
+        <p class="text-slate-400 text-sm mt-3">Scanning stocks…</p></div>
+    </div>
+  </section>
+
+  <!-- ──── News ──── -->
+  <section>
+    <h2 class="text-xs text-slate-400 font-semibold mb-2 uppercase tracking-wider">📰 Market News</h2>
+    <div id="newsFeed" class="space-y-2">
+      <div class="card p-4 text-center"><div class="spinner"></div></div>
+    </div>
+  </section>
+
+</div><!-- /main -->
+
+<!-- ──────────── MODAL (deep analysis) ──────────── -->
+<div id="modal" class="modal-bg" style="display:none;" onclick="closeModal(event)">
+  <div class="modal" id="modalContent">
+    <div class="text-center"><div class="spinner"></div></div>
+  </div>
+</div>
+
+<script>
+// ── Utilities ─────────────────────────────────────────────────────────
+const fmt  = (n, d=2) => n != null ? parseFloat(n).toLocaleString('en-IN',{minimumFractionDigits:d,maximumFractionDigits:d}) : '—';
+const fmtN = (n)      => n != null ? parseFloat(n).toLocaleString('en-IN',{maximumFractionDigits:2}) : '—';
+
+function changeColor(val) {
+  if (val > 0) return 'up';
+  if (val < 0) return 'down';
+  return 'neutral';
+}
+function changeArrow(val) { return val > 0 ? '▲' : (val < 0 ? '▼' : '—'); }
+
+function verdictBadge(v) {
+  const map = {
+    'STRONG BUY': '<span class="tag badge-sbuy">STRONG BUY</span>',
+    'BUY':        '<span class="tag badge-buy">BUY</span>',
+    'HOLD':       '<span class="tag badge-hold">HOLD</span>',
+    'SELL':       '<span class="tag badge-sell">SELL</span>',
+    'STRONG SELL':'<span class="tag badge-ssell">STRONG SELL</span>',
+  };
+  return map[v] || `<span class="tag badge-neut">${v}</span>`;
+}
+function sentBadge(s) {
+  if (s==='BULLISH') return '<span class="tag badge-bull">BULLISH</span>';
+  if (s==='BEARISH') return '<span class="tag badge-bear">BEARISH</span>';
+  return '<span class="tag badge-neut">NEUTRAL</span>';
+}
+function riskBadge(r) {
+  if (r==='HIGH')     return '<span class="tag" style="background:#dc262622;color:#f87171;border:1px solid #dc2626">HIGH RISK</span>';
+  if (r==='MODERATE') return '<span class="tag" style="background:#ca8a0422;color:#fbbf24;border:1px solid #ca8a04">MOD RISK</span>';
+  return '<span class="tag" style="background:#16a34a22;color:#4ade80;border:1px solid #16a34a">LOW RISK</span>';
+}
+
+// ── IST Clock ─────────────────────────────────────────────────────────
+function updateClock() {
+  const now = new Date();
+  const ist = new Date(now.toLocaleString('en-US', {timeZone:'Asia/Kolkata'}));
+  document.getElementById('istTime').textContent =
+    ist.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit'}) + ' IST';
+}
+setInterval(updateClock, 1000); updateClock();
+
+// ── Market Status ─────────────────────────────────────────────────────
+async function loadStatus() {
+  try {
+    const r = await fetch('/api/status');
+    if (!r.ok) throw new Error(r.status);
+    const d = await r.json();
+    const m = d.market || {};
+    document.getElementById('statusText').textContent = m.status || '—';
+    document.getElementById('statusDot').className    = m.is_open ? 'open-dot' : 'closed-dot';
+    document.getElementById('lastRefresh').textContent = d.last_refresh || '—';
+
+    // Stale data warning
+    const staleEl = document.getElementById('staleWarning');
+    if (staleEl) {
+      staleEl.style.display = d.is_stale ? 'block' : 'none';
+    }
+    // Holiday banner
+    const holEl = document.getElementById('holidayBanner');
+    if (holEl) {
+      holEl.style.display = m.is_holiday ? 'block' : 'none';
+    }
+  } catch(e) {
+    console.warn('Status fetch failed:', e);
+  }
+}
+
+// ── Indices ───────────────────────────────────────────────────────────
+function indexCard(idx) {
+  const cls = changeColor(idx.change_pct);
+  const arr = changeArrow(idx.change_pct);
+  return `<div class="card-sm p-3 min-w-[130px]">
+    <p class="text-xs text-slate-400 truncate">${idx.name}</p>
+    <p class="font-bold text-white mt-1">${fmtN(idx.price)}</p>
+    <p class="${cls} text-xs font-semibold">${arr} ${fmt(idx.change_pct,2)}%</p>
+  </div>`;
+}
+
+async function loadOverview() {
+  try {
+    const r = await fetch('/api/overview'); const d = await r.json();
+    document.getElementById('indicesRow').innerHTML =
+      (d.indian_indices||[]).map(indexCard).join('') || '<p class="text-slate-500 text-sm">No data</p>';
+    document.getElementById('globalRow').innerHTML =
+      (d.global_indices||[]).map(indexCard).join('') || '<p class="text-slate-500 text-sm">No data</p>';
+  } catch(e) {
+    document.getElementById('indicesRow').innerHTML = '<p class="text-red-400 text-sm">Error loading indices</p>';
+  }
+}
+
+// ── Market Mood ───────────────────────────────────────────────────────
+async function loadMood() {
+  try {
+    const r = await fetch('/api/news'); const d = await r.json();
+    const label = d.label || 'NEUTRAL';
+    const score = d.score || 0;
+    const colors = {BULLISH:'text-green-400 border-green-800 bg-green-950',
+                    BEARISH:'text-red-400 border-red-800 bg-red-950',
+                    NEUTRAL:'text-slate-300 border-slate-700 bg-slate-800'};
+    const cls = colors[label] || colors.NEUTRAL;
+    document.getElementById('moodBanner').innerHTML =
+      `<div class="border rounded-lg p-3 ${cls}">
+        <span class="font-bold text-base">Market Mood Today: ${label}</span>
+        <span class="text-xs ml-2">Sentiment Score: ${score > 0 ? '+' : ''}${score}</span>
+        <span class="text-xs ml-3">${d.bullish||0} bullish · ${d.bearish||0} bearish of ${d.total||0} headlines</span>
+      </div>`;
+  } catch(e) {}
+}
+
+// ── Signal Card ───────────────────────────────────────────────────────
+function signalCard(s) {
+  if (s.error) return `<div class="card-sm p-3">
+    <p class="text-xs text-red-400">${s.ticker}: ${s.error}</p></div>`;
+
+  const priceCls = changeColor(s.change_pct);
+  const arr = changeArrow(s.change_pct);
+  const isBuy  = s.verdict && s.verdict.includes('BUY');
+  const isSell = s.verdict && s.verdict.includes('SELL');
+
+  // Supertrend badge
+  const stBadge = s.supertrend === 'BULL'
+    ? '<span class="tag" style="background:#16a34a33;color:#4ade80;border:1px solid #16a34a">▲ ST</span>'
+    : s.supertrend === 'BEAR'
+    ? '<span class="tag" style="background:#dc262633;color:#f87171;border:1px solid #dc2626">▼ ST</span>'
+    : '';
+
+  // Confluence badge
+  const cfText = s.confluence || '';
+  const cfNum  = parseInt(cfText) || 0;
+  const cfColor = cfNum >= 4 ? 'text-green-400' : cfNum >= 2 ? 'text-amber-400' : 'text-slate-500';
+
+  const position = (s.shares && s.shares > 0)
+    ? `<div class="mt-2 p-2 rounded-lg text-xs" style="background:#0f172a;">
+        <span class="text-slate-400">Position:</span>
+        <span class="font-semibold text-white ml-1">${s.shares} shares</span>
+        <span class="text-slate-400 ml-2">≈ ₹${fmtN(s.investment)}</span>
+        ${s.uses_margin ? '<span class="ml-1 text-amber-400">(uses margin)</span>' : ''}
+      </div>`
+    : '';
+
+  return `<div class="card-sm p-4" style="border-color:${isBuy?'#166534':(isSell?'#991b1b':'#334155')}; cursor:pointer"
+     onclick="openAnalysis('${s.ticker}')">
+    <div class="flex items-start justify-between gap-2">
+      <div>
+        <span class="font-bold text-white">${s.ticker.replace('.NS','').replace('.BO','')}</span>
+        <span class="text-xs text-slate-400 ml-1 hidden sm:inline">${(s.name||'').slice(0,20)}</span>
+      </div>
+      <div class="flex items-center gap-1 shrink-0">
+        ${stBadge}
+        ${verdictBadge(s.verdict)}
+      </div>
+    </div>
+
+    <div class="flex items-baseline gap-2 mt-2">
+      <span class="text-xl font-bold text-white">₹${fmt(s.price,2)}</span>
+      <span class="${priceCls} text-xs font-semibold">${arr} ${fmt(s.change_pct,2)}%</span>
+    </div>
+
+    <div class="grid grid-cols-3 gap-1 mt-3 text-xs">
+      <div class="text-center">
+        <p class="text-slate-400">Entry</p>
+        <p class="text-indigo-300 font-semibold">₹${fmt(s.entry,2)}</p>
+      </div>
+      <div class="text-center">
+        <p class="text-slate-400">Stop Loss</p>
+        <p class="text-red-400 font-semibold">₹${fmt(s.stop_loss,2)}</p>
+      </div>
+      <div class="text-center">
+        <p class="text-slate-400">Target</p>
+        <p class="text-green-400 font-semibold">₹${fmt(s.target_1,2)}</p>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-2 mt-2 text-xs flex-wrap">
+      <span class="text-slate-400">R:R</span>
+      <span class="font-semibold ${s.risk_reward >= 2 ? 'text-green-400' : 'text-slate-300'}">${s.risk_reward || '—'}</span>
+      <span class="text-slate-500">RSI ${s.rsi||'—'}</span>
+      <span class="text-slate-500">Conf ${s.confidence||0}%</span>
+      <span class="${cfColor} font-semibold ml-auto">${cfText}</span>
+      ${riskBadge(s.risk)}
+    </div>
+
+    ${position}
+    <p class="text-xs text-slate-600 mt-2 text-right">Tap for deep analysis →</p>
+  </div>`;
+}
+
+async function loadSignals(watchlist='affordable') {
+  document.getElementById('signalsGrid').innerHTML =
+    `<div class="card p-6 text-center col-span-full"><div class="spinner"></div>
+     <p class="text-slate-400 text-sm mt-3">Scanning ${watchlist} stocks…</p></div>`;
+  try {
+    const r = await fetch(`/api/scan?watchlist=${watchlist}`);
+    const d = await r.json();
+    const results = d.results || [];
+    if (!results.length) {
+      document.getElementById('signalsGrid').innerHTML =
+        '<p class="text-slate-400 text-center col-span-full py-8">No signals found.</p>';
+      return;
+    }
+    // Filter: only show actionable signals (confidence ≥ 20%), hide pure HOLDs with no conviction
+    const MIN_CONF = 20;
+    const actionable = results.filter(r => !r.error && (r.verdict !== 'HOLD' || r.confidence >= MIN_CONF));
+    const holdCount  = results.filter(r => !r.error && r.verdict === 'HOLD' && r.confidence < MIN_CONF).length;
+
+    let html = actionable.map(signalCard).join('');
+    if (holdCount > 0) {
+      html += `<p class="text-xs text-slate-600 col-span-full text-center mt-2">
+        ${holdCount} low-confidence HOLD signals hidden. They have insufficient indicator agreement.
+      </p>`;
+    }
+    document.getElementById('signalsGrid').innerHTML = html || '<p class="text-slate-400 col-span-full text-center py-8">No actionable signals found for this watchlist right now.</p>';
+  } catch(e) {
+    document.getElementById('signalsGrid').innerHTML =
+      `<p class="text-red-400 col-span-full text-center py-8">Error: ${e.message}</p>`;
+  }
+}
+
+function loadWatchlist(val) { loadSignals(val); }
+
+// ── News Feed ─────────────────────────────────────────────────────────
+function newsItem(a) {
+  const sent = a.sentiment || {};
+  return `<div class="card-sm p-3">
+    <div class="flex items-start gap-2">
+      <div class="flex-1 min-w-0">
+        <p class="text-sm text-slate-200 leading-snug">${a.title}</p>
+        ${a.summary ? `<p class="text-xs text-slate-500 mt-1 line-clamp-2">${a.summary}</p>` : ''}
+        <p class="text-xs text-slate-600 mt-1">${a.source} ${a.published ? '· '+a.published.slice(0,16) : ''}</p>
+      </div>
+      <div class="shrink-0">${sentBadge(sent.label||'NEUTRAL')}</div>
+    </div>
+  </div>`;
+}
+
+async function loadNews() {
+  try {
+    const r = await fetch('/api/news'); const d = await r.json();
+    const arts = d.articles || [];
+    document.getElementById('newsFeed').innerHTML =
+      arts.length ? arts.slice(0,12).map(newsItem).join('') :
+      '<p class="text-slate-400 text-sm text-center py-4">No news available.</p>';
+  } catch(e) {
+    document.getElementById('newsFeed').innerHTML = '<p class="text-red-400 text-sm">Error loading news</p>';
+  }
+}
+
+// ── Deep Analysis Modal ───────────────────────────────────────────────
+async function openAnalysis(ticker) {
+  document.getElementById('modal').style.display = 'flex';
+  document.getElementById('modalContent').innerHTML =
+    `<div class="text-center py-8"><div class="spinner"></div>
+     <p class="text-slate-400 text-sm mt-3">Deep-analyzing ${ticker}…</p></div>`;
+  try {
+    const r = await fetch(`/api/analyze/${ticker}`);
+    const d = await r.json();
+    if (d.error) { document.getElementById('modalContent').innerHTML =
+      `<button onclick="closeModalBtn()" class="mb-4 text-slate-400 text-sm">✕ Close</button>
+       <p class="text-red-400">${d.error}</p>`; return; }
+    renderModal(d);
+  } catch(e) {
+    document.getElementById('modalContent').innerHTML = `<p class="text-red-400">${e.message}</p>`;
+  }
+}
+
+function renderModal(d) {
+  const info = d.stock_info || {};
+  const tech = d.technical || {};
+  const tp   = d.trade_plan || {};
+  const pos  = tp.position || {};
+  const news = d.news || {};
+  const ns   = news.sentiment_summary || {};
+  const sr   = d.support_resistance || {};
+  const fund = d.fundamentals || {};
+  const ind  = tech.indicators || {};
+  const priceCls = changeColor(info.change_pct||0);
+
+  const signals = (tech.signals||[]).map(s => {
+    const act = (s.action || 'HOLD');
+    const cls = act.includes('BUY') ? 'text-green-400' :
+                act.includes('SELL') ? 'text-red-400' : 'text-amber-400';
+    return `<div class="row">
+      <span class="text-sm">${s.name||'—'}</span>
+      <span class="text-sm font-semibold ${cls}">${act}</span>
+    </div>`;
+  }).join('');
+
+  const headlines = (news.articles||[]).slice(0,6).map(a =>
+    `<div class="row items-start">
+      <span class="text-xs text-slate-300 flex-1 pr-2">${a.title}</span>
+      ${sentBadge((a.sentiment||{}).label||'NEUTRAL')}
+    </div>`
+  ).join('');
+
+  document.getElementById('modalContent').innerHTML = `
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <h2 class="text-lg font-bold text-white">${info.name||d.ticker}</h2>
+        <p class="text-slate-400 text-sm">${d.ticker} · ${info.sector||''}</p>
+      </div>
+      <button onclick="closeModalBtn()" class="text-slate-400 text-xl">✕</button>
+    </div>
+
+    <!-- Price -->
+    <div class="flex items-baseline gap-3 mb-4">
+      <span class="text-3xl font-bold text-white">₹${fmt(info.price,2)}</span>
+      <span class="${priceCls} font-semibold">${changeArrow(info.change_pct||0)} ${fmt(info.change_pct,2)}%</span>
+    </div>
+
+    <!-- Verdict -->
+    <div class="p-4 rounded-xl mb-4 text-center" style="background:#0f172a">
+      <div class="text-sm text-slate-400 mb-1">AI Verdict</div>
+      <div class="text-2xl font-bold mb-1">${verdictBadge(d.verdict)}</div>
+      <div class="text-xs text-slate-400">Score: ${d.combined_score} / 10 · ${riskBadge((d.risk||{}).level||'MODERATE')}</div>
+    </div>
+
+    <!-- Trade Plan -->
+    <div class="card-sm p-3 mb-4">
+      <h3 class="text-xs text-slate-400 font-semibold uppercase tracking-wider mb-2">Trade Plan</h3>
+      <div class="row"><span class="text-slate-400 text-sm">Entry</span><span class="text-indigo-300 font-bold">₹${fmt(tp.entry,2)}</span></div>
+      <div class="row"><span class="text-slate-400 text-sm">Stop Loss</span><span class="text-red-400 font-bold">₹${fmt(tp.stop_loss,2)}</span></div>
+      <div class="row"><span class="text-slate-400 text-sm">Target 1</span><span class="text-green-400 font-bold">₹${fmt(tp.target_1,2)}</span></div>
+      <div class="row"><span class="text-slate-400 text-sm">Target 2</span><span class="text-emerald-300 font-bold">₹${fmt(tp.target_2,2)}</span></div>
+      <div class="row"><span class="text-slate-400 text-sm">Risk / Reward</span><span class="font-bold ${tp.risk_reward>=2?'text-green-400':'text-slate-300'}">${tp.risk_reward||'—'}</span></div>
+      ${pos.shares > 0
+        ? `<div class="row"><span class="text-slate-400 text-sm">Suggested Position</span>
+           <span class="font-bold text-white">${pos.shares} shares ≈ ₹${fmtN(pos.investment)}${pos.uses_margin?' <span class="text-amber-400">(uses margin)</span>':''}</span></div>`
+        : `<div class="row"><span class="text-slate-400 text-sm">Position</span>
+           <span class="text-amber-400 text-sm">${(pos.note||'Price exceeds buying power')}</span></div>`}
+    </div>
+
+    <!-- Support & Resistance -->
+    <div class="card-sm p-3 mb-4">
+      <h3 class="text-xs text-slate-400 font-semibold uppercase tracking-wider mb-2">Support & Resistance</h3>
+      <div class="row"><span class="text-green-400 text-sm">Resistance 2</span><span class="font-semibold">₹${fmt(sr.resistance_2,2)}</span></div>
+      <div class="row"><span class="text-green-400 text-sm">Resistance 1</span><span class="font-semibold">₹${fmt(sr.resistance_1,2)}</span></div>
+      <div class="row"><span class="text-slate-300 text-sm">Pivot</span><span class="font-semibold">₹${fmt(sr.pivot,2)}</span></div>
+      <div class="row"><span class="text-red-400 text-sm">Support 1</span><span class="font-semibold">₹${fmt(sr.support_1,2)}</span></div>
+      <div class="row"><span class="text-red-400 text-sm">Support 2</span><span class="font-semibold">₹${fmt(sr.support_2,2)}</span></div>
+    </div>
+
+    <!-- Key Indicators -->
+    <div class="card-sm p-3 mb-4">
+      <h3 class="text-xs text-slate-400 font-semibold uppercase tracking-wider mb-2">Key Indicators</h3>
+      <div class="row"><span class="text-slate-400 text-sm">RSI (14)</span>
+        <span class="font-semibold ${ind.rsi<30?'text-green-400':(ind.rsi>70?'text-red-400':'text-white')}">${fmt(ind.rsi,1)}</span></div>
+      <div class="row"><span class="text-slate-400 text-sm">MACD</span><span class="font-semibold">${fmt(ind.macd,4)}</span></div>
+      <div class="row"><span class="text-slate-400 text-sm">ADX (Trend Strength)</span><span class="font-semibold ${ind.adx>25?'text-indigo-400':'text-slate-300'}">${fmt(ind.adx,1)}</span></div>
+      <div class="row"><span class="text-slate-400 text-sm">Bollinger Position</span><span class="font-semibold">${fmt(ind.bb_position,1)}%</span></div>
+      <div class="row"><span class="text-slate-400 text-sm">Stochastic K</span><span class="font-semibold">${fmt(ind.stoch_k,1)}</span></div>
+      <div class="row"><span class="text-slate-400 text-sm">Volume Ratio</span>
+        <span class="font-semibold ${ind.volume_ratio>2?'text-amber-400':'text-white'}">${fmt(ind.volume_ratio,2)}×</span></div>
+    </div>
+
+    <!-- Technical Signals -->
+    <div class="card-sm p-3 mb-4">
+      <h3 class="text-xs text-slate-400 font-semibold uppercase tracking-wider mb-2">
+        Technical Signals · Buy: ${tech.buy_score||0} vs Sell: ${tech.sell_score||0}
+      </h3>
+      ${signals}
+    </div>
+
+    <!-- Fundamentals -->
+    ${fund.details && fund.details.length ? `
+    <div class="card-sm p-3 mb-4">
+      <h3 class="text-xs text-slate-400 font-semibold uppercase tracking-wider mb-2">Fundamentals</h3>
+      ${fund.details.map(d=>`<div class="row"><span class="text-sm text-slate-300">${d}</span></div>`).join('')}
+      <div class="row"><span class="text-slate-400 text-sm">Score</span>
+        <span class="font-bold ${fund.fundamental_score>0?'text-green-400':'text-red-400'}">${fund.fundamental_score} / ${fund.max_score}</span></div>
+    </div>` : ''}
+
+    <!-- News -->
+    <div class="card-sm p-3 mb-4">
+      <h3 class="text-xs text-slate-400 font-semibold uppercase tracking-wider mb-2">
+        News Sentiment: ${sentBadge(ns.overall||'NEUTRAL')}
+        <span class="text-slate-500 ml-2 font-normal">${ns.bullish_count||0} bull · ${ns.bearish_count||0} bear</span>
+      </h3>
+      ${headlines || '<p class="text-slate-500 text-xs">No headlines found.</p>'}
+    </div>
+
+    <!-- Stock Info -->
+    <div class="card-sm p-3 mb-2">
+      <h3 class="text-xs text-slate-400 font-semibold uppercase tracking-wider mb-2">Stock Info</h3>
+      <div class="row"><span class="text-slate-400 text-sm">Day Range</span>
+        <span>₹${fmt(info.day_low,2)} – ₹${fmt(info.day_high,2)}</span></div>
+      <div class="row"><span class="text-slate-400 text-sm">52W Range</span>
+        <span>₹${fmt(info['52w_low'],2)} – ₹${fmt(info['52w_high'],2)}</span></div>
+      <div class="row"><span class="text-slate-400 text-sm">P/E Ratio</span><span>${fmt(info.pe_ratio,2)}</span></div>
+      <div class="row"><span class="text-slate-400 text-sm">Beta</span><span>${fmt(info.beta,2)}</span></div>
+      <div class="row"><span class="text-slate-400 text-sm">Avg Volume</span><span>${fmtN(info.avg_volume)}</span></div>
+      ${info.target_mean ? `<div class="row"><span class="text-slate-400 text-sm">Analyst Target</span>
+        <span class="text-indigo-300">₹${fmt(info.target_mean,2)} (${info.analyst_count} analysts)</span></div>` : ''}
+    </div>
+
+    <p class="text-xs text-slate-600 text-center mt-4">⚠️ Not financial advice. Always do your own research.</p>
+  `;
+}
+
+function closeModal(e) {
+  if (e.target.id==='modal') closeModalBtn();
+}
+function closeModalBtn() {
+  document.getElementById('modal').style.display = 'none';
+}
+
+// ── Search ────────────────────────────────────────────────────────────
+function analyzeSearch() {
+  const val = document.getElementById('searchInput').value.trim().toUpperCase();
+  if (!val) return;
+  const ticker = val.includes('.') ? val : val + '.NS';
+  openAnalysis(ticker);
+}
+
+// ── Best Pick of the Day ──────────────────────────────────────────────
+async function loadBestPick() {
+  try {
+    const r = await fetch('/api/bestpick');
+    if (!r.ok) throw new Error(r.status);
+    const d = await r.json();
+
+    document.getElementById('bestPickLoading').style.display = 'none';
+    const card = document.getElementById('bestPickCard');
+    card.style.display = 'block';
+
+    if (!d.has_pick) {
+      card.innerHTML = `
+        <div class="card p-4 text-center" style="border-color:#475569; border-width:2px;">
+          <p class="text-2xl mb-1">⏳</p>
+          <p class="font-bold text-slate-300 text-base">WAIT — No Clear Opportunity</p>
+          <p class="text-xs text-slate-400 mt-1">${d.reason || 'Market is consolidating or signals are weak.'}</p>
+        </div>`;
+      return;
+    }
+
+    const vClass = d.verdict === 'STRONG BUY' ? 'badge-sbuy' : 'badge-buy';
+    const stBadge = d.supertrend && d.supertrend !== '—'
+      ? `<span class="tag ${d.supertrend === 'BULL' ? 'badge-bull' : 'badge-bear'} ml-1">
+           ${d.supertrend === 'BULL' ? '▲' : '▼'} ST</span>`
+      : '';
+    const marginNote = d.uses_margin ? '<span class="text-amber-400 text-xs"> (margin)</span>' : '';
+
+    card.innerHTML = `
+      <div class="card p-4" style="border-color:#16a34a; border-width:2px; background:linear-gradient(135deg,#0f172a 80%,#14532d22);">
+        <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+          <div>
+            <p class="text-xs text-slate-400 uppercase tracking-wider mb-0.5">Best Pick of the Day</p>
+            <p class="font-bold text-white text-xl">${d.ticker}
+              <span class="text-slate-400 text-sm font-normal">${d.name}</span>
+            </p>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="tag ${vClass} text-sm px-3 py-1">${d.verdict}</span>
+            ${stBadge}
+          </div>
+        </div>
+
+        <!-- Action headline -->
+        <div class="rounded-lg p-3 mb-3 text-sm font-semibold text-green-300"
+             style="background:#16a34a22; border:1px solid #16a34a44;">
+          ${d.action_line}${marginNote}
+        </div>
+
+        <!-- Trade Plan grid -->
+        <div class="grid grid-cols-2 gap-2 text-sm mb-3 sm:grid-cols-4">
+          <div class="card-sm p-2 text-center">
+            <p class="text-xs text-slate-400">Entry</p>
+            <p class="font-bold text-white">₹${d.entry.toFixed(2)}</p>
+          </div>
+          <div class="card-sm p-2 text-center">
+            <p class="text-xs text-slate-400">Stop Loss</p>
+            <p class="font-bold text-red-400">₹${d.stop_loss.toFixed(2)}</p>
+          </div>
+          <div class="card-sm p-2 text-center">
+            <p class="text-xs text-slate-400">Target 1</p>
+            <p class="font-bold text-green-400">₹${d.target_1.toFixed(2)}</p>
+          </div>
+          <div class="card-sm p-2 text-center">
+            <p class="text-xs text-slate-400">Target 2</p>
+            <p class="font-bold text-green-300">₹${d.target_2.toFixed(2)}</p>
+          </div>
+        </div>
+
+        <!-- Signal Quality row -->
+        <div class="flex flex-wrap gap-3 text-xs text-slate-400">
+          <span>R:R <strong class="text-white">${d.risk_reward}</strong></span>
+          <span>RSI <strong class="text-white">${d.rsi.toFixed(1)}</strong></span>
+          <span>Confluence <strong class="text-white">${d.confluence}</strong></span>
+          <span>Confidence <strong class="text-white">${d.confidence.toFixed(0)}%</strong></span>
+          <span>Score <strong class="text-indigo-300">${d.combined_score.toFixed(2)}</strong></span>
+        </div>
+
+        <p class="text-xs text-slate-500 mt-2">
+          ${d.last_refresh ? 'Updated ' + d.last_refresh : ''}
+          ${d.is_stale ? '<span class="text-amber-400"> · data may be stale</span>' : ''}
+        </p>
+      </div>`;
+  } catch(e) {
+    document.getElementById('bestPickLoading').style.display = 'none';
+    document.getElementById('bestPickCard').style.display = 'block';
+    document.getElementById('bestPickCard').innerHTML =
+      '<div class="card p-3 text-center text-xs text-slate-500">Best Pick unavailable</div>';
+  }
+}
+
+// ── Master Refresh ────────────────────────────────────────────────────
+async function refreshAll() {
+  await Promise.all([loadStatus(), loadOverview(), loadMood(), loadNews(), loadBestPick()]);
+  const wl = document.getElementById('watchlistSelect').value || 'affordable';
+  loadSignals(wl);
+}
+
+// ── Auto-refresh every 60s ────────────────────────────────────────────
+setInterval(refreshAll, 60000);
+
+// ── Initial Load ──────────────────────────────────────────────────────
+refreshAll();
+</script>
+</body>
+</html>
